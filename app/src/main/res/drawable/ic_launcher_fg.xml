@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- film strip -->
+    <path android:fillColor="#E8A33D" android:pathData="M30,34h48v40h-48z" />
+    <path android:fillColor="#3A2410" android:pathData="M36,42h36v24h-36z" />
+    <path android:fillColor="#111111" android:pathData="M32,36h3v3h-3zM32,45h3v3h-3zM32,54h3v3h-3zM32,63h3v3h-3zM32,69h3v3h-3zM73,36h3v3h-3zM73,45h3v3h-3zM73,54h3v3h-3zM73,63h3v3h-3zM73,69h3v3h-3z" />
+</vector>

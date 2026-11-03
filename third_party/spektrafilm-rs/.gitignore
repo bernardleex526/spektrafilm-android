@@ -1,0 +1,16 @@
+target/
+.DS_Store
+**/.DS_Store
+
+# Local task tracking (Beads) — data lives in the Dolt server, config is
+# machine-local and not shared through git.
+.beads/
+AGENTS.md
+
+# Diagnostic outputs from local runs (test renders, exports).
+# Scoped to the repo root so legitimate fixtures under data/ and tests/
+# stay tracked.
+/test_*.png
+/*.tif
+/*.tiff
+/*.jpg

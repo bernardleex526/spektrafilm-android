@@ -1,0 +1,113 @@
+diff --git a/crates/spektrafilm-core/Cargo.toml b/crates/spektrafilm-core/Cargo.toml
+index 40bfad9..cdc864a 100644
+--- a/crates/spektrafilm-core/Cargo.toml
++++ b/crates/spektrafilm-core/Cargo.toml
+@@ -27,6 +27,6 @@ image.workspace = true
+ cblas = "0.4"
+ blas-src = { version = "0.10", features = ["accelerate"] }
+ 
+-[target.'cfg(all(not(target_os = "macos"), not(target_os = "windows")))'.dependencies]
++[target.'cfg(all(not(target_os = "macos"), not(target_os = "windows"), not(target_os = "android")))'.dependencies]
+ cblas = "0.4"
+ blas-src = { version = "0.10", features = ["openblas"] }
+diff --git a/crates/spektrafilm-core/src/spectral_service.rs b/crates/spektrafilm-core/src/spectral_service.rs
+index 314ef93..38ceb7c 100644
+--- a/crates/spektrafilm-core/src/spectral_service.rs
++++ b/crates/spektrafilm-core/src/spectral_service.rs
+@@ -9,7 +9,7 @@ use spektrafilm_math::spectral::{self, N_WAVELENGTHS, TcLut};
+ 
+ // Pull in BLAS for the spectra→tc_lut contraction (matches Python's
+ // opt_einsum + numpy summation pattern bit-for-bit on macOS Accelerate).
+-#[cfg(not(target_os = "windows"))]
++#[cfg(not(any(target_os = "windows", target_os = "android")))]
+ #[allow(unused_imports)]
+ use blas_src as _;
+ 
+@@ -18,7 +18,7 @@ fn dgemm_no_transpose(a: &[f64], b: &[f64], c: &mut [f64], m: usize, n: usize, k
+     assert_eq!(b.len(), k * n, "dgemm_no_transpose: b.len() != k*n");
+     assert_eq!(c.len(), m * n, "dgemm_no_transpose: c.len() != m*n");
+ 
+-    #[cfg(not(target_os = "windows"))]
++    #[cfg(not(any(target_os = "windows", target_os = "android")))]
+     unsafe {
+         cblas::dgemm(
+             cblas::Layout::RowMajor,
+@@ -38,7 +38,7 @@ fn dgemm_no_transpose(a: &[f64], b: &[f64], c: &mut [f64], m: usize, n: usize, k
+         );
+     }
+ 
+-    #[cfg(target_os = "windows")]
++    #[cfg(any(target_os = "windows", target_os = "android"))]
+     {
+         for row in 0..m {
+             for col in 0..n {
+diff --git a/crates/spektrafilm-gpu/Cargo.toml b/crates/spektrafilm-gpu/Cargo.toml
+index 26ae41b..5845a1c 100644
+--- a/crates/spektrafilm-gpu/Cargo.toml
++++ b/crates/spektrafilm-gpu/Cargo.toml
+@@ -27,7 +27,7 @@ cblas = "0.4"
+ blas-src = { version = "0.10", features = ["accelerate"] }
+ accelerate-src = "0.3"
+ 
+-[target.'cfg(all(not(target_os = "macos"), not(target_os = "windows")))'.dependencies]
++[target.'cfg(all(not(target_os = "macos"), not(target_os = "windows"), not(target_os = "android")))'.dependencies]
+ cblas = "0.4"
+ blas-src = { version = "0.10", features = ["openblas"] }
+ openblas-src = "0.10"
+diff --git a/crates/spektrafilm-gpu/src/cpu_backend.rs b/crates/spektrafilm-gpu/src/cpu_backend.rs
+index e4736d0..d211b03 100644
+--- a/crates/spektrafilm-gpu/src/cpu_backend.rs
++++ b/crates/spektrafilm-gpu/src/cpu_backend.rs
+@@ -8,7 +8,7 @@ use crate::{ComputeBackend, Lut3D};
+ // Pull in BLAS-src so `cblas_dgemm` is available at link time. The
+ // provider crate (Accelerate on macOS, OpenBLAS elsewhere) is selected
+ // in this crate's Cargo.toml.
+-#[cfg(not(target_os = "windows"))]
++#[cfg(not(any(target_os = "windows", target_os = "android")))]
+ #[allow(unused_imports)]
+ use blas_src as _;
+ 
+@@ -47,7 +47,7 @@ fn dgemm_blas(
+ ) {
+     assert_eq!(a.len(), m * k, "dgemm_blas: a.len() != m*k");
+     assert_eq!(c.len(), m * n, "dgemm_blas: c.len() != m*n");
+-    #[cfg(not(target_os = "windows"))]
++    #[cfg(not(any(target_os = "windows", target_os = "android")))]
+     unsafe {
+         cblas::dgemm(
+             cblas::Layout::RowMajor,
+@@ -69,7 +69,7 @@ fn dgemm_blas(
+             n as i32,
+         );
+     }
+-    #[cfg(target_os = "windows")]
++    #[cfg(any(target_os = "windows", target_os = "android"))]
+     {
+         let _ = ldb;
+         c.par_chunks_exact_mut(n).enumerate().for_each(|(row, crow)| {
+diff --git a/crates/spektrafilm-gpu/src/wgpu_backend.rs b/crates/spektrafilm-gpu/src/wgpu_backend.rs
+index 6e4b0c1..724ad8b 100644
+--- a/crates/spektrafilm-gpu/src/wgpu_backend.rs
++++ b/crates/spektrafilm-gpu/src/wgpu_backend.rs
+@@ -126,6 +126,21 @@ impl WgpuBackend {
+         // megapixel counts (within RAM).
+         let adapter_info = adapter.get_info();
+         let adapter_limits = adapter.limits();
++        // Every 1-D shader is `@workgroup_size(1024)`. Some mobile GPUs
++        // (e.g. many Arm Mali parts) cap invocations below that; creating the
++        // pipelines would then fail validation and panic. Refuse the adapter
++        // so `select_backend` falls back to the CPU path instead.
++        if adapter_limits.max_compute_invocations_per_workgroup < 1024
++            || adapter_limits.max_compute_workgroup_size_x < 1024
++        {
++            tracing::warn!(
++                adapter = adapter_info.name,
++                max_invocations = adapter_limits.max_compute_invocations_per_workgroup,
++                max_size_x = adapter_limits.max_compute_workgroup_size_x,
++                "wgpu adapter cannot run workgroup_size(1024) shaders; skipping"
++            );
++            return None;
++        }
+         let mut limits = wgpu::Limits::default();
+         limits.max_storage_buffer_binding_size = adapter_limits.max_storage_buffer_binding_size;
+         limits.max_buffer_size = adapter_limits.max_buffer_size;

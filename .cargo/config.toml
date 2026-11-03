@@ -1,0 +1,8 @@
+[http]
+# Windows schannel revocation checks fail on this network; TLS itself is still verified.
+check-revoke = false
+ssl-version = "tlsv1.2"
+multiplexing = false
+
+[net]
+retry = 10

@@ -1,0 +1,9 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+/rust/spektrafilm-jni/target/
+/app/src/main/jniLibs/
+/app/build/
+/build-check/
